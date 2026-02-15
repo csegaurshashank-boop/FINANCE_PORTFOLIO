@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous Adaptive Portfolio & Risk Management System</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Autonomous Adaptive Portfolio & Risk Management System</h1>
+            <p class="subtitle">Advanced portfolio optimization with real-time risk management</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Input Form Section -->
+            <div class="input-section card">
+                <h2>Portfolio Configuration</h2>
+                <form id="portfolio-form">
+                    <div class="form-group">
+                        <label for="asset-search">Search and Select Assets:</label>
+                        <div class="asset-selector-container">
+                            <input 
+                                type="text" 
+                                id="asset-search" 
+                                placeholder="Type to search assets (e.g., SPY, AAPL, BTC-USD)..."
+                                autocomplete="off"
+                            >
+                            <div id="asset-search-results" class="search-results hidden"></div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Selected Assets:</label>
+                        <div id="selected-assets" class="selected-assets">
+                            <!-- Selected assets will appear here as tags -->
+                            <div class="asset-tag" data-symbol="SPY">
+                                SPY
+                                <span class="remove-asset" onclick="removeAsset('SPY')">×</span>
+                            </div>
+                            <div class="asset-tag" data-symbol="QQQ">
+                                QQQ
+                                <span class="remove-asset" onclick="removeAsset('QQQ')">×</span>
+                            </div>
+                            <div class="asset-tag" data-symbol="TLT">
+                                TLT
+                                <span class="remove-asset" onclick="removeAsset('TLT')">×</span>
+                            </div>
+                            <div class="asset-tag" data-symbol="GLD">
+                                GLD
+                                <span class="remove-asset" onclick="removeAsset('GLD')">×</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="start-date">Start Date:</label>
+                            <input type="date" id="start-date" name="start_date" value="2023-01-01" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="end-date">End Date:</label>
+                            <input type="date" id="end-date" name="end_date" value="2024-01-01" required>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="initial-capital">Initial Capital ($):</label>
+                            <input type="number" id="initial-capital" name="initial_capital" value="100000" min="1000" step="1000" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="risk-profile">Risk Profile:</label>
+                            <select id="risk-profile" name="risk_profile" required>
+                                <option value="conservative">Conservative</option>
+                                <option value="moderate" selected>Moderate</option>
+                                <option value="aggressive">Aggressive</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="rebalance-frequency">Rebalance Frequency:</label>
+                        <select id="rebalance-frequency" name="rebalance_frequency">
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly" selected>Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                        </select>
+                    </div>
+
+                    <div class="checkbox-group">
+                        <label>
+                            <input type="checkbox" id="enable-risk" name="enable_risk_management" checked>
+                            Enable Risk Management
+                        </label>
+                    </div>
+
+                    <div class="popular-assets">
+                        <label>Popular Assets:</label>
+                        <div class="asset-buttons">
+                            <button type="button" class="asset-btn" onclick="addAsset('SPY')">SPY (S&P 500)</button>
+                            <button type="button" class="asset-btn" onclick="addAsset('QQQ')">QQQ (NASDAQ)</button>
+                            <button type="button" class="asset-btn" onclick="addAsset('TLT')">TLT (Bonds)</button>
+                            <button type="button" class="asset-btn" onclick="addAsset('GLD')">GLD (Gold)</button>
+                            <button type="button" class="asset-btn" onclick="addAsset('AAPL')">AAPL (Apple)</button>
+                            <button type="button" class="asset-btn" onclick="addAsset('MSFT')">MSFT (Microsoft)</button>
+                            <button type="button" class="asset-btn" onclick="addAsset('BTC-USD')">BTC-USD (Bitcoin)</button>
+                            <button type="button" class="asset-btn" onclick="addAsset('ETH-USD')">ETH-USD (Ethereum)</button>
+                        </div>
+                    </div>
+
+                    <div class="button-group">
+                        <button type="submit" class="btn-primary" id="run-portfolio">Run Portfolio</button>
+                        <button type="button" class="btn-secondary" id="run-backtest">Run Backtest</button>
+                        <button type="button" class="btn-secondary" id="run-stress-test">Stress Test</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Loading Indicator -->
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Processing... This may take a moment.</p>
+            </div>
+
+            <!-- Results Dashboard -->
+            <div id="results" class="results-section hidden">
+                <!-- Summary Cards -->
+                <div class="summary-cards">
+                    <div class="card metric-card">
+                        <h3>Final Portfolio Value</h3>
+                        <p id="final-value" class="metric-value">$0</p>
+                    </div>
+                    <div class="card metric-card">
+                        <h3>Total Return</h3>
+                        <p id="total-return" class="metric-value">0%</p>
+                    </div>
+                    <div class="card metric-card">
+                        <h3>Sharpe Ratio</h3>
+                        <p id="sharpe-ratio" class="metric-value">0.00</p>
+                    </div>
+                    <div class="card metric-card">
+                        <h3>Max Drawdown</h3>
+                        <p id="max-drawdown" class="metric-value negative">0%</p>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="charts-grid">
+                    <div class="card chart-container">
+                        <h3>Portfolio Value Over Time</h3>
+                        <canvas id="portfolio-chart"></canvas>
+                    </div>
+
+                    <div class="card chart-container">
+                        <h3>Drawdown Analysis</h3>
+                        <canvas id="drawdown-chart"></canvas>
+                    </div>
+
+                    <div class="card chart-container">
+                        <h3>Current Allocation</h3>
+                        <canvas id="allocation-chart"></canvas>
+                    </div>
+
+                    <div class="card chart-container">
+                        <h3>Rolling Volatility</h3>
+                        <canvas id="volatility-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Explanations Section -->
+                <div class="card explanations-section">
+                    <h3>AI Explanations & Decisions</h3>
+                    <div id="explanations-list" class="explanations-list">
+                        <!-- Explanations will be inserted here -->
+                    </div>
+                </div>
+
+                <!-- Regime Timeline -->
+                <div class="card regime-section">
+                    <h3>Market Regime Timeline</h3>
+                    <div id="regime-timeline" class="regime-timeline">
+                        <!-- Regime indicators will be inserted here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
