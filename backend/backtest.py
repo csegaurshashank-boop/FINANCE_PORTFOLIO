@@ -54,7 +54,7 @@ class BacktestEngine:
         logger.info(f"Starting rolling backtest with window={window_size}, step={step_size}")
         
         # Load full dataset
-        prices = await self.data_loader.download_data(
+        prices, volumes = await self.data_loader.download_data(
             self.config.assets,
             self.config.start_date,
             self.config.end_date,
@@ -81,7 +81,7 @@ class BacktestEngine:
         if len(windows) == 0:
             # If no windows, do a simple train/test split
             logger.warning("No rolling windows generated, using simple train/test split")
-            return await self.run_simple_backtest(prices)
+            return await self.run_simple_backtest(prices, volumes)
         
         results_with_risk = []
         results_without_risk = []
@@ -90,23 +90,30 @@ class BacktestEngine:
         for i, (train_end, test_end) in enumerate(windows):
             logger.info(f"Processing window {i+1}/{len(windows)}")
             
-            # Split data
-            train_data = prices.loc[:train_end]
-            test_data = prices.loc[train_end:test_end]
+            # Use data up to test_end (expanding window approach for training)
+            # This ensures the engine has access to sufficient history for indicators
+            window_prices = prices.loc[:test_end]
+            window_volumes = volumes.loc[:test_end]
             
-            if len(test_data) < 5:  # Skip very short test periods
-                logger.warning(f"Test period too short ({len(test_data)} days), skipping")
+            test_start = train_end + timedelta(days=1)
+            # If test_start not in index (weekend/holiday), find next available day
+            # Actually, calculate test performance from train_end date
+            
+            # Check if we have enough test data
+            test_data_slice = prices.loc[train_end:test_end]
+            if len(test_data_slice) < 5:  # Skip very short test periods
+                logger.warning(f"Test period too short ({len(test_data_slice)} days), skipping")
                 continue
             
             # Run with risk management
-            with_risk_result = await self.run_window_backtest(
-                train_data, test_data, enable_risk=True
+            with_risk_result = await self.run_window_backtest_with_engine(
+                window_prices, window_volumes, train_end, test_end, enable_risk=True
             )
             results_with_risk.append(with_risk_result)
             
             # Run without risk management
-            without_risk_result = await self.run_window_backtest(
-                train_data, test_data, enable_risk=False
+            without_risk_result = await self.run_window_backtest_with_engine(
+                window_prices, window_volumes, train_end, test_end, enable_risk=False
             )
             results_without_risk.append(without_risk_result)
             
@@ -134,25 +141,25 @@ class BacktestEngine:
             }
         }
     
-    async def run_simple_backtest(self, prices: pd.DataFrame) -> Dict:
+    async def run_simple_backtest(self, prices: pd.DataFrame, volumes: pd.DataFrame) -> Dict:
         """Run a simple train/test split backtest when rolling windows aren't possible"""
         logger.info("Running simple train/test split backtest")
         
         # Use 70% for training, 30% for testing
         split_idx = int(len(prices) * 0.7)
-        train_data = prices.iloc[:split_idx]
-        test_data = prices.iloc[split_idx:]
+        train_end = prices.index[split_idx]
+        test_end = prices.index[-1]
         
-        logger.info(f"Train: {len(train_data)} days, Test: {len(test_data)} days")
+        logger.info(f"Train end: {train_end}, Test end: {test_end}")
         
         # Run with risk management
-        with_risk_result = await self.run_window_backtest(
-            train_data, test_data, enable_risk=True
+        with_risk_result = await self.run_window_backtest_with_engine(
+            prices, volumes, train_end, test_end, enable_risk=True
         )
         
         # Run without risk management
-        without_risk_result = await self.run_window_backtest(
-            train_data, test_data, enable_risk=False
+        without_risk_result = await self.run_window_backtest_with_engine(
+            prices, volumes, train_end, test_end, enable_risk=False
         )
         
         # Calculate metrics
@@ -184,7 +191,7 @@ class BacktestEngine:
             "metrics_without_risk": convert_to_python(metrics_without_risk),
             "comparison": convert_to_python(comparison),
             "rolling_values": {
-                "dates": [test_data.index[-1].strftime("%Y-%m-%d")],
+                "dates": [test_end.strftime("%Y-%m-%d")],
                 "with_risk": [convert_to_python(with_risk_result)],
                 "without_risk": [convert_to_python(without_risk_result)]
             }
@@ -207,55 +214,78 @@ class BacktestEngine:
         
         return windows
     
-    async def run_window_backtest(self, train_data: pd.DataFrame, 
-                                 test_data: pd.DataFrame,
-                                 enable_risk: bool) -> Dict:
-        """Run backtest for a single window"""
+    async def run_window_backtest_with_engine(self, prices: pd.DataFrame, 
+                                            volumes: pd.DataFrame,
+                                            train_end_date: pd.Timestamp,
+                                            test_end_date: pd.Timestamp,
+                                            enable_risk: bool) -> Dict:
+        """
+        Run backtest using the actual PortfolioEngine logic.
+        This runs the engine on the full data provided (up to test_end),
+        but only calculates performance for the period [train_end_date, test_end_date].
+        """
         
-        # Create temporary config for this window
+        # Create config for this run
         window_config = PortfolioConfig(
             assets=self.config.assets,
-            start_date=train_data.index[0].strftime("%Y-%m-%d"),
-            end_date=test_data.index[-1].strftime("%Y-%m-%d"),
+            start_date=prices.index[0].strftime("%Y-%m-%d"),
+            end_date=test_end_date.strftime("%Y-%m-%d"),
             initial_capital=self.config.initial_capital,
             risk_profile=self.config.risk_profile,
+            rebalance_frequency=self.config.rebalance_frequency,
             enable_risk_management=enable_risk
         )
         
         # Initialize engine
         engine = PortfolioEngine(window_config)
         
-        # Train on training data
-        engine.prices = train_data
-        engine.returns = train_data.pct_change().dropna()
-        engine.volatility = engine.returns.rolling(21).std() * np.sqrt(252)
+        # Run engine with provided data
+        # Note: We give it data up to test_end_date so it can simulate the test period
+        results = await engine.run_with_data(prices, volumes)
         
-        # Test on test data
-        test_results = []
-        current_value = window_config.initial_capital
-        current_weights = {asset: 1.0/len(self.config.assets) 
-                          for asset in self.config.assets}
+        # Extract results for the test period
+        portfolio_values = results["portfolio_values"]
+        dates = prices.index
         
-        for date in test_data.index[1:]:
-            # Update portfolio
-            prev_date = test_data.index[test_data.index.get_loc(date) - 1]
-            daily_return = (test_data.loc[date] / test_data.loc[prev_date] - 1)
+        # Find indices for test period
+        # We start tracking return from train_end_date
+        try:
+            start_idx = dates.get_loc(train_end_date)
+            end_idx = dates.get_loc(test_end_date)
+        except KeyError:
+            # Fallback for approximate indices
+            start_idx = dates.searchsorted(train_end_date)
+            end_idx = dates.searchsorted(test_end_date)
             
-            portfolio_return = sum(current_weights[asset] * daily_return[asset] 
-                                  for asset in self.config.assets)
-            current_value *= (1 + portfolio_return)
+        # Ensure indices are within bounds
+        start_idx = min(max(0, start_idx), len(portfolio_values)-1)
+        end_idx = min(max(0, end_idx), len(portfolio_values)-1)
+        
+        # Calculate performance over this specific period
+        start_value = portfolio_values[start_idx]
+        end_value = portfolio_values[end_idx]
+        
+        # Get daily values for this period for metrics
+        test_period_values = portfolio_values[start_idx:end_idx+1]
+        
+        # Calculate returns
+        if len(test_period_values) > 1:
+            returns_series = pd.Series(test_period_values).pct_change().dropna()
+            returns_list = [float(x) for x in returns_series.tolist()]
+        else:
+            returns_list = []
             
-            test_results.append(current_value)
+        # Calculate period return
+        period_return = (end_value / start_value) - 1 if start_value > 0 else 0
         
-        returns = pd.Series(test_results).pct_change().dropna()
-        
-        # Convert numpy types to Python native types
-        returns_list = [float(x) if not pd.isna(x) else 0.0 for x in returns.tolist()]
+        # Use initial capital as base for "final_value" to allow aggregation
+        # We simulate what $InitialCapital would become over this period
+        simulated_final_value = self.config.initial_capital * (1 + period_return)
         
         return {
-            "final_value": float(current_value),
+            "final_value": float(simulated_final_value), # Normalized to initial capital
             "returns": returns_list,
-            "total_return": float((current_value / window_config.initial_capital) - 1)
+            "total_return": float(period_return)
         }
     
     def calculate_single_metrics(self, result: Dict) -> Dict:

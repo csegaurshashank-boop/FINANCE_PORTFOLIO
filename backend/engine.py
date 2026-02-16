@@ -40,6 +40,7 @@ class PortfolioEngine:
         self.config = config
         self.data_loader = DataLoader()
         self.prices = None
+        self.volumes = None
         self.returns = None
         self.volatility = None
         self.drawdown = None
@@ -93,7 +94,7 @@ class PortfolioEngine:
         """Load and prepare market data"""
         try:
             # Download data
-            self.prices = await self.data_loader.download_data(
+            self.prices, self.volumes = await self.data_loader.download_data(
                 self.config.assets,
                 self.config.start_date,
                 self.config.end_date
@@ -158,6 +159,10 @@ class PortfolioEngine:
             current_drawdown = 0
         
         # Determine regime
+        # Check for Trending Up (SMA Trend)
+        is_trending = self.is_market_trending_up(date)
+        
+        # Determine regime
         if current_drawdown < -0.20 and current_vol > 0.30:
             regime = "Crash"
             description = "Market crash detected: Severe drawdown with extreme volatility"
@@ -170,6 +175,10 @@ class PortfolioEngine:
             regime = "High Volatility"
             description = "High volatility regime: Increased market uncertainty"
             risk_mult = 0.6
+        elif is_trending and current_vol <= 0.15:
+            regime = "Trending Up"
+            description = "Bull market: Strong upward trend with stable volatility"
+            risk_mult = 1.2 # Slight leverage allowed or full allocation
         elif current_vol > 0.15:
             regime = "Elevated Volatility"
             description = "Moderately elevated volatility"
@@ -192,6 +201,44 @@ class PortfolioEngine:
             description=description,
             risk_multiplier=risk_mult
         )
+    
+    def is_market_trending_up(self, date: pd.Timestamp) -> bool:
+        """Check if market is in a strong uptrend (Price > SMA50 > SMA200)"""
+        # Calculate SMAs efficiently for the specific date
+        # We need enough history
+        
+        try:
+            # Get data up to date
+            idx = self.prices.index.get_loc(date)
+            if idx < 200:
+                return False
+                
+            # Check for majority of assets
+            trending_assets = 0
+            total_assets = len(self.config.assets)
+            
+            # Use a optimize slice for calculation
+            # We need last 200 days
+            history = self.prices.iloc[idx-200:idx+1]
+            
+            for asset in self.config.assets:
+                if asset not in history.columns:
+                    continue
+                    
+                prices = history[asset]
+                current_price = prices.iloc[-1]
+                
+                sma50 = prices.iloc[-50:].mean()
+                sma200 = prices.mean() # Since we sliced 200 days
+                
+                if current_price > sma50 and sma50 > sma200:
+                    trending_assets += 1
+            
+            # If > 50% of assets are trending
+            return (trending_assets / total_assets) > 0.5
+            
+        except Exception as e:
+            return False
     
     def calculate_risk_parity_weights(self, date: pd.Timestamp) -> Dict[str, float]:
         """
@@ -415,7 +462,7 @@ class PortfolioEngine:
             logger.warning("Using default/sample data for demonstration")
             # Create sample data if loading failed
             if self.prices is None or self.prices.empty:
-                self.prices = self.data_loader._get_sample_data(
+                self.prices, self.volumes = self.data_loader._get_sample_data(
                     self.config.assets,
                     self.config.start_date,
                     self.config.end_date
@@ -527,12 +574,19 @@ class PortfolioEngine:
             "regimes": regimes,
             "explanations": all_explanations,
             "metrics": metrics,
-            "current_allocation": current_weights
+            "current_allocation": current_weights,
+            "volumes": self.volumes.fillna(0).to_dict(orient='list') if self.volumes is not None else {}
         }
     
-    async def run_with_data(self, prices: pd.DataFrame) -> Dict:
+    async def run_with_data(self, prices: pd.DataFrame, volumes: Optional[pd.DataFrame] = None) -> Dict:
         """Run engine with pre-loaded data (for stress testing)"""
         self.prices = prices
+        if volumes is not None:
+            self.volumes = volumes
+        else:
+            # Create dummy volume if not provided
+            self.volumes = pd.DataFrame(0, index=prices.index, columns=prices.columns)
+            
         self.returns = prices.pct_change().dropna()
         self.volatility = self.returns.rolling(window=21).std() * np.sqrt(252)
         

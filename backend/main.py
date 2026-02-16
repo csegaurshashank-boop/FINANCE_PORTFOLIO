@@ -5,7 +5,7 @@ FastAPI backend with Pydantic v1 compatibility
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 from typing import List, Optional, Dict, Any
 import uvicorn
 import numpy as np
@@ -14,6 +14,10 @@ from datetime import datetime, timedelta
 import logging
 import sys
 import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Add the current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -44,7 +48,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Request/Response models (Pydantic v1 syntax)
+from pydantic import BaseModel, field_validator
+
+# ... imports ...
+
+# Request/Response models (Pydantic v2 syntax)
 class PortfolioRequest(BaseModel):
     assets: List[str]
     start_date: str
@@ -54,8 +62,9 @@ class PortfolioRequest(BaseModel):
     rebalance_frequency: str = "monthly"
     enable_risk_management: bool = True
 
-    # Pydantic v1 validators
-    @validator('end_date')
+    # Pydantic v2 validators
+    @field_validator('end_date')
+    @classmethod
     def validate_end_date(cls, v):
         try:
             datetime.strptime(v, "%Y-%m-%d")
@@ -63,7 +72,8 @@ class PortfolioRequest(BaseModel):
         except ValueError:
             raise ValueError("Invalid date format. Use YYYY-MM-DD")
 
-    @validator('start_date')
+    @field_validator('start_date')
+    @classmethod
     def validate_start_date(cls, v):
         try:
             datetime.strptime(v, "%Y-%m-%d")
@@ -71,14 +81,16 @@ class PortfolioRequest(BaseModel):
         except ValueError:
             raise ValueError("Invalid date format. Use YYYY-MM-DD")
 
-    @validator('risk_profile')
+    @field_validator('risk_profile')
+    @classmethod
     def validate_risk_profile(cls, v):
         valid_profiles = ["conservative", "moderate", "aggressive"]
         if v not in valid_profiles:
             raise ValueError(f"Risk profile must be one of: {valid_profiles}")
         return v
 
-    @validator('assets')
+    @field_validator('assets')
+    @classmethod
     def validate_assets(cls, v):
         if not v:
             raise ValueError("At least one asset must be specified")
@@ -128,6 +140,10 @@ async def get_status():
         "timestamp": datetime.now().isoformat()
     }
 
+from ai_helper import get_market_commentary
+
+# ... existing imports ...
+
 @app.post("/run")
 async def run_portfolio(request: PortfolioRequest):
     """Run portfolio optimization"""
@@ -148,6 +164,17 @@ async def run_portfolio(request: PortfolioRequest):
         # Initialize and run engine
         engine = PortfolioEngine(config)
         results = await engine.run()
+        
+        # Get AI Commentary
+        last_regime = results["regimes"][-1] if results["regimes"] else {"name": "Normal", "volatility": 0.15, "drawdown": 0}
+        last_actions = [exp["explanation"] for exp in results["explanations"][-5:]] if results["explanations"] else []
+        
+        ai_analysis = get_market_commentary(
+            regime=last_regime.get("name", "Unknown"),
+            volatility=last_regime.get("volatility", 0),
+            drawdown=last_regime.get("drawdown", 0),
+            actions=last_actions
+        )
         
         # Convert numpy types for JSON
         def convert_to_python(obj):
@@ -174,7 +201,9 @@ async def run_portfolio(request: PortfolioRequest):
             "regimes": convert_to_python(results["regimes"]),
             "explanations": convert_to_python(results["explanations"]),
             "metrics": convert_to_python(results["metrics"]),
-            "current_allocation": convert_to_python(results["current_allocation"])
+            "current_allocation": convert_to_python(results["current_allocation"]),
+            "volumes": convert_to_python(results.get("volumes", {})),
+            "ai_analysis": ai_analysis
         }
         
         logger.info("Portfolio run completed successfully")
@@ -239,7 +268,7 @@ async def run_stress_test(request: StressTestRequest):
         logger.info(f"Running stress test: {request.shock_type}")
         
         # Load data
-        prices = await data_loader.download_data(
+        prices, volumes = await data_loader.download_data(
             request.assets,
             request.start_date,
             request.end_date,
@@ -275,7 +304,7 @@ async def run_stress_test(request: StressTestRequest):
             }, index=returns.index)
             shocked_prices = (1 + shocked_returns).cumprod() * prices.iloc[0]
         
-        results = await engine.run_with_data(shocked_prices)
+        results = await engine.run_with_data(shocked_prices, volumes)
         
         final_value = float(results["portfolio_values"][-1])
         preservation_ratio = final_value / request.initial_capital

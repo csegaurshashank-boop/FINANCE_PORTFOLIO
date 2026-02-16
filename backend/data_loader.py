@@ -24,12 +24,12 @@ class DataLoader:
     def __init__(self):
         self.cache = {}
         # Configure yfinance to be more reliable
-        yf.set_tz_cache_location(None)  # Disable timezone caching issues
+        # yf.set_tz_cache_location(None)  # Disable timezone caching issues - CAUSES ERROR
         
     async def download_data(self, symbols: List[str], start_date: str, 
-                           end_date: str, use_sample_if_fails: bool = True) -> pd.DataFrame:
+                           end_date: str, use_sample_if_fails: bool = True) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Download historical price data using yfinance
+        Download historical price and volume data using yfinance
         
         Args:
             symbols: List of ticker symbols
@@ -38,7 +38,7 @@ class DataLoader:
             use_sample_if_fails: If True, use sample data when download fails
             
         Returns:
-            DataFrame with dates as index and symbols as columns
+            Tuple of (prices_df, volumes_df)
         """
         try:
             # Clean and validate symbols
@@ -66,21 +66,26 @@ class DataLoader:
             # Check cache
             if cache_key in self.cache:
                 logger.info("Returning cached data")
-                return self.cache[cache_key].copy()
+                # Cache stores tuple of (prices, volumes)
+                cached_data = self.cache[cache_key]
+                if isinstance(cached_data, tuple):
+                    return cached_data[0].copy(), cached_data[1].copy()
+                # Legacy cache support
+                return cached_data.copy(), pd.DataFrame()
             
             # Try yfinance first
-            prices = await self._download_yfinance(symbols, start_date, end_date)
+            prices, volumes = await self._download_yfinance(symbols, start_date, end_date)
             
             # If yfinance fails and we should use sample data
             if (prices is None or prices.empty) and use_sample_if_fails:
                 logger.warning("yfinance failed. Using sample data.")
-                prices = self._get_sample_data(symbols, start_date, end_date)
+                prices, volumes = self._get_sample_data(symbols, start_date, end_date)
             
             if prices is not None and not prices.empty:
                 # Store in cache
-                self.cache[cache_key] = prices.copy()
+                self.cache[cache_key] = (prices.copy(), volumes.copy())
                 logger.info(f"Successfully loaded {len(prices)} days of data for {len(prices.columns)} symbols")
-                return prices
+                return prices, volumes
             else:
                 raise ValueError("No data available")
             
@@ -92,7 +97,7 @@ class DataLoader:
             raise
     
     async def _download_yfinance(self, symbols: List[str], start_date: str, 
-                                 end_date: str) -> pd.DataFrame:
+                                 end_date: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Download data using yfinance with multiple strategies"""
         
         strategies = [
@@ -104,22 +109,22 @@ class DataLoader:
         for i, strategy in enumerate(strategies):
             try:
                 logger.info(f"Trying yfinance strategy {i+1}/{len(strategies)}")
-                prices = await strategy(symbols, start_date, end_date)
+                prices, volumes = await strategy(symbols, start_date, end_date)
                 
                 if prices is not None and not prices.empty and len(prices.columns) > 0:
                     # Validate the data
                     if self._validate_downloaded_data(prices):
                         logger.info(f"Strategy {i+1} successful")
-                        return prices
+                        return prices, volumes
                     
             except Exception as e:
                 logger.warning(f"Strategy {i+1} failed: {str(e)}")
                 await asyncio.sleep(1)  # Wait before next strategy
         
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
     
     async def _download_batch(self, symbols: List[str], start_date: str, 
-                             end_date: str) -> pd.DataFrame:
+                             end_date: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Download all symbols at once"""
         try:
             # Run in thread pool to avoid blocking
@@ -142,43 +147,57 @@ class DataLoader:
             )
             
             if data is None or data.empty:
-                return pd.DataFrame()
+                return pd.DataFrame(), pd.DataFrame()
             
-            # Extract close prices
+            # Extract close prices and volume
             prices = pd.DataFrame()
+            volumes = pd.DataFrame()
             
             if len(symbols) == 1:
                 # Single symbol
                 if isinstance(data, pd.DataFrame):
                     if 'Close' in data.columns:
                         prices = data[['Close']].copy()
-                        prices.columns = symbols
                     elif 'Adj Close' in data.columns:
                         prices = data[['Adj Close']].copy()
+                        
+                    if 'Volume' in data.columns:
+                        volumes = data[['Volume']].copy()
+                    
+                    if not prices.empty:
                         prices.columns = symbols
+                    if not volumes.empty:
+                        volumes.columns = symbols
             else:
                 # Multiple symbols
                 for symbol in symbols:
                     if symbol in data.columns.get_level_values(1) if hasattr(data.columns, 'get_level_values') else False:
+                        # Get prices
                         if ('Adj Close', symbol) in data.columns:
                             prices[symbol] = data[('Adj Close', symbol)]
                         elif ('Close', symbol) in data.columns:
                             prices[symbol] = data[('Close', symbol)]
+                        
+                        # Get volumes
+                        if ('Volume', symbol) in data.columns:
+                            volumes[symbol] = data[('Volume', symbol)]
             
             if not prices.empty:
                 # Forward fill any missing values
                 prices = prices.ffill().bfill()
+                volumes = volumes.ffill().bfill().fillna(0)
                 
-            return prices
+            return prices, volumes
             
         except Exception as e:
             logger.warning(f"Batch download failed: {str(e)}")
-            return pd.DataFrame()
+            return pd.DataFrame(), pd.DataFrame()
     
     async def _download_individual(self, symbols: List[str], start_date: str, 
-                                  end_date: str) -> pd.DataFrame:
+                                  end_date: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Download symbols one by one for better reliability"""
         prices_list = []
+        volumes_list = []
         valid_symbols = []
         
         for symbol in symbols:
@@ -202,6 +221,11 @@ class DataLoader:
                 
                 if not hist.empty and 'Close' in hist.columns:
                     prices_list.append(hist['Close'])
+                    if 'Volume' in hist.columns:
+                        volumes_list.append(hist['Volume'])
+                    else:
+                        volumes_list.append(pd.Series(0, index=hist.index))
+                        
                     valid_symbols.append(symbol)
                     logger.info(f"✅ Successfully downloaded {symbol}")
                 else:
@@ -216,14 +240,19 @@ class DataLoader:
         if prices_list:
             prices = pd.concat(prices_list, axis=1)
             prices.columns = valid_symbols
-            return prices
+            
+            volumes = pd.concat(volumes_list, axis=1)
+            volumes.columns = valid_symbols
+            
+            return prices, volumes
         
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
     
     async def _download_with_delays(self, symbols: List[str], start_date: str, 
-                                   end_date: str) -> pd.DataFrame:
+                                   end_date: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Download with longer delays between requests"""
         prices_list = []
+        volumes_list = []
         valid_symbols = []
         
         for i, symbol in enumerate(symbols):
@@ -250,6 +279,10 @@ class DataLoader:
                 
                 if not hist.empty and 'Close' in hist.columns:
                     prices_list.append(hist['Close'])
+                    if 'Volume' in hist.columns:
+                        volumes_list.append(hist['Volume'])
+                    else:
+                        volumes_list.append(pd.Series(0, index=hist.index))
                     valid_symbols.append(symbol)
                     logger.info(f"✅ Successfully downloaded {symbol}")
                     
@@ -259,9 +292,13 @@ class DataLoader:
         if prices_list:
             prices = pd.concat(prices_list, axis=1)
             prices.columns = valid_symbols
-            return prices
+            
+            volumes = pd.concat(volumes_list, axis=1)
+            volumes.columns = valid_symbols
+            
+            return prices, volumes
         
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
     
     def _validate_downloaded_data(self, prices: pd.DataFrame) -> bool:
         """Validate downloaded data quality"""
@@ -287,7 +324,7 @@ class DataLoader:
         
         return True
     
-    def _get_sample_data(self, symbols: List[str], start_date: str, end_date: str) -> pd.DataFrame:
+    def _get_sample_data(self, symbols: List[str], start_date: str, end_date: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Generate realistic sample data for testing"""
         logger.info("Generating sample data for testing")
         
@@ -302,6 +339,7 @@ class DataLoader:
         # Generate sample prices with realistic correlations
         np.random.seed(42)
         prices = {}
+        volumes = {}
         
         # Base market factor
         market_returns = np.random.normal(0.0005, 0.01, len(dates))
@@ -310,6 +348,7 @@ class DataLoader:
         for i, symbol in enumerate(symbols):
             price = 100
             price_series = []
+            volume_series = []
             
             # Adjust parameters based on symbol type
             if 'BTC' in symbol or 'ETH' in symbol:
@@ -317,16 +356,19 @@ class DataLoader:
                 beta = 1.5
                 alpha = 0.001
                 vol = 0.02
+                avg_vol = 1000000
             elif symbol in ['AAPL', 'MSFT', 'GOOGL']:
                 # Tech stocks
                 beta = 1.2
                 alpha = 0.0003
                 vol = 0.008
+                avg_vol = 5000000
             else:
                 # Default
                 beta = 0.8 + (i * 0.1)
                 alpha = 0.0001 * (i + 1)
                 vol = 0.005 * (i + 1)
+                avg_vol = 1000000
             
             for j in range(len(dates)):
                 market_component = market_returns[j] * beta
@@ -334,12 +376,18 @@ class DataLoader:
                 daily_return = market_component + specific_component
                 price *= (1 + daily_return)
                 price_series.append(price)
+                
+                # Generate volume (correlated with volatility)
+                vol_factor = 1 + abs(daily_return) * 10
+                volume_series.append(int(avg_vol * vol_factor * np.random.uniform(0.8, 1.2)))
             
             prices[symbol] = price_series
+            volumes[symbol] = volume_series
         
-        df = pd.DataFrame(prices, index=dates)
-        logger.info(f"Generated sample data with {len(df)} rows for {len(symbols)} symbols")
-        return df
+        df_prices = pd.DataFrame(prices, index=dates)
+        df_volumes = pd.DataFrame(volumes, index=dates)
+        logger.info(f"Generated sample data with {len(df_prices)} rows for {len(symbols)} symbols")
+        return df_prices, df_volumes
     
     def calculate_returns(self, prices: pd.DataFrame, log_returns: bool = False) -> pd.DataFrame:
         """Calculate returns from price data"""

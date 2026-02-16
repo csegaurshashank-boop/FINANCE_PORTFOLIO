@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -23,12 +25,8 @@
                     <div class="form-group">
                         <label for="asset-search">Search and Select Assets:</label>
                         <div class="asset-selector-container">
-                            <input 
-                                type="text" 
-                                id="asset-search" 
-                                placeholder="Type to search assets (e.g., SPY, AAPL, BTC-USD)..."
-                                autocomplete="off"
-                            >
+                            <input type="text" id="asset-search"
+                                placeholder="Type to search assets (e.g., SPY, AAPL, BTC-USD)..." autocomplete="off">
                             <div id="asset-search-results" class="search-results hidden"></div>
                         </div>
                     </div>
@@ -71,7 +69,8 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="initial-capital">Initial Capital ($):</label>
-                            <input type="number" id="initial-capital" name="initial_capital" value="100000" min="1000" step="1000" required>
+                            <input type="number" id="initial-capital" name="initial_capital" value="100000" min="1000"
+                                step="1000" required>
                         </div>
 
                         <div class="form-group">
@@ -110,8 +109,10 @@
                             <button type="button" class="asset-btn" onclick="addAsset('GLD')">GLD (Gold)</button>
                             <button type="button" class="asset-btn" onclick="addAsset('AAPL')">AAPL (Apple)</button>
                             <button type="button" class="asset-btn" onclick="addAsset('MSFT')">MSFT (Microsoft)</button>
-                            <button type="button" class="asset-btn" onclick="addAsset('BTC-USD')">BTC-USD (Bitcoin)</button>
-                            <button type="button" class="asset-btn" onclick="addAsset('ETH-USD')">ETH-USD (Ethereum)</button>
+                            <button type="button" class="asset-btn" onclick="addAsset('BTC-USD')">BTC-USD
+                                (Bitcoin)</button>
+                            <button type="button" class="asset-btn" onclick="addAsset('ETH-USD')">ETH-USD
+                                (Ethereum)</button>
                         </div>
                     </div>
 
@@ -149,6 +150,10 @@
                         <h3>Max Drawdown</h3>
                         <p id="max-drawdown" class="metric-value negative">0%</p>
                     </div>
+                    <div class="card metric-card">
+                        <h3>Current Regime</h3>
+                        <p id="current-regime" class="metric-value regime-badge">Normal</p>
+                    </div>
                 </div>
 
                 <!-- Charts -->
@@ -171,6 +176,19 @@
                     <div class="card chart-container">
                         <h3>Rolling Volatility</h3>
                         <canvas id="volatility-chart"></canvas>
+                    </div>
+
+                    <div class="card chart-container full-width">
+                        <h3>Trading Volume</h3>
+                        <canvas id="volume-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- AI Analysis Section -->
+                <div class="card analysis-section">
+                    <h3>🤖 GenAI Market Commentary</h3>
+                    <div id="ai-analysis" class="ai-analysis-content">
+                        <p class="placeholder-text">Run the portfolio to generate AI-powered market analysis...</p>
                     </div>
                 </div>
 
@@ -195,4 +213,5 @@
 
     <script src="script.js"></script>
 </body>
+
 </html>

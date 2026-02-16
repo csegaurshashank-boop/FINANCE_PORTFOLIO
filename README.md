@@ -1,122 +1,81 @@
-📈 Autonomous Adaptive Portfolio & Risk Management System
-An intelligent portfolio management system that combines adaptive risk management, market regime detection, and explainable AI decisions with an interactive real-time dashboard.
+# Autonomous Adaptive Portfolio & Risk Management Engine
 
-https://img.shields.io/badge/version-1.0.0-blue
-https://img.shields.io/badge/python-3.9%252B-green
-https://img.shields.io/badge/FastAPI-0.104.1-teal
+> **54-Hour Hackathon Submission**
+> **Team:** Nexus
 
-🚀 Features
-Real-time Data: yfinance integration with automatic sample data fallback
+## 1. Problem Understanding
+Financial markets are inherently unstable. Traditional "Buy & Hold" strategies expose investors to massive drawdowns during crashes (e.g., 2008, 2020), while static 60/40 portfolios fail when both stocks and bonds fall simultaneously (e.g., 2022).
 
-Regime Detection: Identifies Normal, High Volatility, Bear, and Crash regimes
+**The Core Problem:** Retail investors and simple robo-advisors lack the **dynamic risk management** tools used by professional hedge funds. They cannot adapt to changing market "regimes" (e.g., moving from low-volatility bull markets to high-volatility crashes).
 
-Adaptive Allocation: Risk parity + momentum hybrid with regime-based adjustments
+## 2. Approach: Adaptive & Autonomous
+Our solution is an **Autonomous Engine** that acts like a digital risk manager. It doesn't just pick stocks; it decides **how much risk to take**.
 
-Risk Management: Volatility targeting, drawdown protection, stop-loss logic
+### Key Innovations:
+1.  **Regime Detection**: We use a hybrid model (Volatility + Trend + Drawdown) to classify the market into 4 states:
+    *   *Trending Up* (Bull Market) -> Aggressive Allocation
+    *   *Normal* -> Balanced Allocation
+    *   *High Volatility* -> Reduced Exposure
+    *   *Crash* -> Capital Preservation (Cash/Hedging)
+2.  **Risk Parity Allocation**: Instead of allocating capital equally, we allocate **risk** equally. Volatile assets get smaller weights.
+3.  **Active Risk Controls**:
+    *   **Volatility Targeting**: If portfolio volatility exceeds 15%, we automatically deleverage.
+    *   **Drawdown Control**: Hard stops triggers if losses exceed predefined thresholds.
 
-Backtesting: Rolling window analysis with/without risk management comparison
+## 3. Tech Stack
 
-Stress Testing: Market crash, volatility spike, and correlation spike scenarios
+| Component | Technology | Role |
+| :--- | :--- | :--- |
+| **Backend** | **FastAPI** (Python 3.9+) | High-performance API server. |
+| **Data Logic** | **Pandas, NumPy, SciPy** | Vectorized financial calculations & optimization. |
+| **Data Source** | **yfinance** | Real-time market data ingestion. |
+| **Frontend** | **HTML5, CSS3, Vanilla JS** | Lightweight, responsive dashboard. |
+| **Visualization**| **Chart.js** | Interactive financial charting. |
+| **Process** | **asyncio** | Concurrent data fetching and processing. |
 
-Explainable AI: Natural language explanations for all decisions
+## 4. Limitations
+*   **Data Latency**: We rely on end-of-day data for this prototype. A high-frequency version would require a real-time websocket feed.
+*   **Transaction Costs**: The current backtest simulation assumes zero slippage and commissions, which might slightly overstate net returns for high-frequency rebalancing.
+*   **Asset Universe**: Currently limited to Yahoo Finance supported tickers.
+*   **Single-Strategy**: Focused on Risk Parity; does not yet incorporate alternative data (sentiment, macro-economic indicators).
 
-Interactive Dashboard: Real-time charts with Chart.js
+---
 
-🏗️ Quick Start
-Prerequisites
-Python 3.9+
+## 5. How to Run (Demo)
 
-Git
+### Prerequisites
+*   Python 3.9+
+*   Git
 
-Installation
-bash
-# Clone repository
-git clone https://github.com/yourusername/portfolio_system.git
+### Installation
+```bash
+# 1. Clone the repository
+git clone <repo-url>
 cd portfolio_system
 
-# Setup backend
+# 2. Setup Backend
 cd backend
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+# Windows: venv\Scripts\activate
+# Mac/Linux: source venv/bin/activate
 pip install -r requirements.txt
 
-# Start server
+# 3. Start Backend Server
 uvicorn main:app --reload --port 8000
+```
+*Backend is running at `http://localhost:8000`*
 
-# In new terminal - launch frontend
+### Launch Frontend
+Open a new terminal:
+```bash
 cd frontend
-# Open index.html in browser or run:
+# Start simple server
 python -m http.server 8080
-Visit http://localhost:8080 for the dashboard, API at http://localhost:8000
+```
+Visit **`http://localhost:8080`** to see the dashboard.
 
-📊 Usage
-Select Assets: Search or click popular assets (SPY, QQQ, AAPL, BTC-USD, etc.)
-
-Configure: Set date range, capital, risk profile (Conservative/Moderate/Aggressive)
-
-Run Analysis:
-
-Run Portfolio: Full optimization with explanations
-
-Run Backtest: Compare with/without risk management
-
-Stress Test: Simulate market shocks
-
-🎯 Risk Profiles
-Profile	Max Vol	Max DD	Min Cash	Stop Loss
-Conservative	10%	15%	30%	8%
-Moderate	15%	25%	15%	12%
-Aggressive	25%	35%	5%	18%
-📡 API Endpoints
-GET /health - Server status
-
-POST /run - Run portfolio optimization
-
-POST /backtest - Run rolling backtest
-
-POST /stress_test - Run stress test
-
-🛠️ Tech Stack
-Backend: FastAPI, Pydantic, Pandas, NumPy, yfinance
-Frontend: HTML5, CSS3, JavaScript, Chart.js
-Data: yfinance (primary) + intelligent sample data fallback
-
-📁 Project Structure
-text
-portfolio_system/
-├── backend/
-│   ├── main.py          # FastAPI server
-│   ├── engine.py        # Core portfolio logic
-│   ├── data_loader.py   # Market data handling
-│   ├── backtest.py      # Backtesting engine
-│   ├── config.py        # Configuration
-│   └── requirements.txt
-├── frontend/
-│   ├── index.html       # Dashboard
-│   ├── style.css        # Styling
-│   └── script.js        # Frontend logic
-└── README.md
-🔧 Configuration
-Create .env in backend folder (optional - works without API keys):
-
-env
-MARKETDATA_TOKEN=your_token      # For real market data
-📈 Key Metrics
-CAGR: Compound Annual Growth Rate
-
-Sharpe Ratio: Risk-adjusted return
-
-Max Drawdown: Largest peak-to-trough decline
-
-Calmar Ratio: CAGR / Max Drawdown
-
-Win Rate: % of profitable periods
-
-⚡ Troubleshooting
-Backend won't start: pip install -r requirements.txt
-No data showing: Check backend on port 8000, browser console (F12)
-yfinance errors: pip install --upgrade yfinance
-
-📝 License
-MIT License - free for academic and commercial use
-# PORTFOLIO_SYSTEM
+## 6. Features Checklist (Rulebook Compliance)
+- [x] **Architecture Diagram** (See `architecture_diagram.md`)
+- [x] **Working Demo** (Live interactive dashboard)
+- [x] **Code Freeze** (Core logic stable, only documentation updates)
+- [x] **Physical Presence** (Team ready for Monday 9:30 AM)
